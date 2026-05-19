@@ -2,7 +2,7 @@
 
 Production-grade Kyverno deployment for GKE Standard with:
 
-- Kyverno Helm chart pinned to 3.7.1 (Kyverno 1.17.1)
+- Kyverno Helm chart pinned to 3.8.0 (Kyverno 1.18.0)
 - High availability replicas:
   - admission-controller: 3
   - background-controller: 2
@@ -19,10 +19,7 @@ Production-grade Kyverno deployment for GKE Standard with:
 
 - Chart definition: [Chart.yaml](Chart.yaml)
 - Base config: [values.yaml](values.yaml) (common settings for all environments)
-- Environment overrides:
-  - [values-sre.yaml](values-sre.yaml) - SRE cluster (HA with 3 replicas, audit+warn PSA labels)
-  - [values-dev.yaml](values-dev.yaml) - Dev cluster (same replicas/PDB minAvailable as SRE, audit-only PSA labels)
-- Custom policies: [templates/namespace-psa-labeler-clusterpolicy.yaml](templates/namespace-psa-labeler-clusterpolicy.yaml), [templates/default-pod-securitycontext-clusterpolicy.yaml](templates/default-pod-securitycontext-clusterpolicy.yaml)
+- Custom policies: [templates/mutating-policy-add-restricted-namespace-pss-labels.yaml](templates/mutating-policy-add-restricted-namespace-pss-labels.yaml), [templates/validating-policy-disallow-privileged-containers.yaml](templates/validating-policy-disallow-privileged-containers.yaml)
 
 ## Prerequisites
 
@@ -58,38 +55,8 @@ helm upgrade --install kyverno charts/kyverno \
 helm uninstall kyverno --namespace kyverno
 ```
 
-## Verification and Rollout Validation
 
-```bash
-kubectl -n kyverno wait --for=condition=Available deployment/kyverno-admission-controller --timeout=300s
-kubectl -n kyverno wait --for=condition=Available deployment/kyverno-background-controller --timeout=300s
-kubectl -n kyverno wait --for=condition=Available deployment/kyverno-cleanup-controller --timeout=300s
-kubectl -n kyverno wait --for=condition=Available deployment/kyverno-reports-controller --timeout=300s
-kubectl get cpol add-restricted-psa-labels
-kubectl get cpol add-default-pod-and-container-securitycontext
-```
 
-Manual checks:
-
-```bash
-kubectl -n kyverno get deploy
-kubectl get cpol add-restricted-psa-labels
-kubectl get cpol add-default-pod-and-container-securitycontext
-kubectl get cpol
-```
-
-Validate PSA labels are applied to workload namespaces:
-
-```bash
-kubectl get ns <workload-namespace> -o jsonpath='{.metadata.labels}'
-```
-
-Validate excluded namespaces are not modified:
-
-```bash
-kubectl get ns kube-system -o jsonpath='{.metadata.labels}'
-kubectl get ns kyverno -o jsonpath='{.metadata.labels}'
-```
 
 ## Rollback
 
@@ -164,37 +131,6 @@ This chart is managed through the [argocd-app-of-apps](https://github.com/Exabea
 
 Each environment uses the base `values.yaml` plus environment-specific overrides:
 
-**For SRE cluster:**
-```yaml
-source:
-  repoURL: https://github.com/Exabeam/exa-sre-helm
-  targetRevision: HEAD
-  path: charts/kyverno
-  helm:
-    releaseName: kyverno
-    valueFiles:
-      - values.yaml         # Base (common to all)
-      - values-sre.yaml     # SRE-specific overrides
-destination:
-  name: sre
-  namespace: kyverno
-```
-
-**For Dev cluster:**
-```yaml
-source:
-  repoURL: https://github.com/Exabeam/exa-sre-helm
-  targetRevision: HEAD
-  path: charts/kyverno
-  helm:
-    releaseName: kyverno
-    valueFiles:
-      - values.yaml         # Base (common to all)
-      - values-dev.yaml     # Dev-specific overrides
-destination:
-  name: dev
-  namespace: kyverno
-```
 
 ### Key Differences by Environment
 
