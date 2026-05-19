@@ -1,0 +1,735 @@
+global:
+  image:
+    registry: us-docker.pkg.dev/exa-cloud-utils/sre-docker
+  imagePullSecrets:
+    - name: regsecret
+    - name: artifact-registry
+
+kyverno:
+  enabled: true
+  crds:
+    install: true
+    customLabels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    migration:
+      podLabels:
+        exa_product: ecp-inf
+        exa_service: kyverno
+      image:
+        tag: v1.18.0
+  config:
+    webhookLabels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+  test:
+    image:
+      tag: v1.18.0
+
+  webhooksCleanup:
+    image:
+      tag: v1.18.0
+    podLabels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+  
+  metricsConfig:
+    namespaces:
+      include: []
+      exclude: []
+
+    bucketBoundaries: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 15, 20, 25, 30]
+    # -- (map) Configures the exposure of individual metrics, by default all metrics and all labels are exported, changing this configuration requires restart of the kyverno admission controller
+    metricsExposure:
+      # kyverno_policy_execution_duration_seconds: []
+      # # bucketBoundaries: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]
+      # kyverno_admission_review_duration_seconds: []
+      # kyverno_policy_rule_info_total:
+      #   disabledLabelDimensions:
+      #     - policy_namespace
+      # kyverno_policy_results_total:
+      #   disabledLabelDimensions:
+      #     - policy_namespace
+      # kyverno_admission_requests_total: []
+      # kyverno_cleanup_controller_deletedobjects_total:
+      #   disabledLabelDimensions:
+      #     - policy_namespace
+
+      ##########################################################################################
+
+      # kyverno_policy_rule_info_total:
+      #   disabledLabelDimensions:
+      #     - policy_namespace
+      # kyverno_policy_results:
+      #   disabledLabelDimensions:
+      #     - policy_namespace
+      # kyverno_policy_results_total:
+      #   disabledLabelDimensions:
+      #     - policy_namespace
+      # kyverno_policy_execution_duration_seconds:
+      #   # bucketBoundaries: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]
+      #   disabledLabelDimensions: []
+      kyverno_validating_policy_execution_duration_seconds:
+        # bucketBoundaries: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]
+        disabledLabelDimensions:
+          # - resource_namespace
+          - resource_request_operation
+      kyverno_mutating_policy_execution_duration_seconds:
+        # bucketBoundaries: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]
+        disabledLabelDimensions:
+          # - resource_namespace
+          - resource_request_operation
+      kyverno_generating_policy_execution_duration_seconds:
+        # bucketBoundaries: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]
+        disabledLabelDimensions:
+          # - resource_namespace
+          - resource_request_operation
+      kyverno_image_validating_policy_execution_duration_seconds:
+        # bucketBoundaries: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5]
+        disabledLabelDimensions:
+          # - resource_namespace
+          - resource_request_operation
+      # kyverno_policy_changes_total:
+      #   disabledLabelDimensions: []
+      # kyverno_admission_requests_total:
+      #   disabledLabelDimensions: []
+      # kyverno_admission_review_duration_seconds:
+      #   disabledLabelDimensions: []
+      # kyverno_cleanup_controller_deletedobjects_total:
+      #   disabledLabelDimensions:
+      #     - policy_namespace
+      # kyverno_deleting_controller_deletedobjects_total:
+      #   disabledLabelDimensions: []
+      ##########################################################################################
+  features:
+    logging:
+      format: json
+      verbosity: 2
+    backgroundScan:
+      enabled: true
+      backgroundScanWorkers: 2
+      backgroundScanInterval: 8h
+
+  admissionController:
+    autoscaling:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 10
+    # admissionController has both an init container and a main container in the
+    # upstream Kyverno subchart (v3.7.1). Top-level "resources" applies to the init
+    # container; "container.resources" targets the main kyverno container.
+    # The other controllers (background, cleanup, reports) have a single container,
+    # so their "resources" block applies directly to it.
+    container:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+    podLabels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    labels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 2
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: admission-controller
+          topologyKey: kubernetes.io/hostname
+    initContainer:
+      image:
+        tag: v1.18.0
+    container:
+      image:
+        tag: v1.18.0
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: admission-controller
+            app.kubernetes.io/instance: kyverno
+
+  backgroundController:
+    replicas: 2
+    image:
+      tag: v1.18.0
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    podLabels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    labels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: background-controller
+          topologyKey: kubernetes.io/hostname
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: background-controller
+            app.kubernetes.io/instance: kyverno
+
+  cleanupController:
+    image:
+      tag: v1.18.0
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    podLabels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    labels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: cleanup-controller
+          topologyKey: kubernetes.io/hostname
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: cleanup-controller
+            app.kubernetes.io/instance: kyverno
+
+  reportsController:
+    image:
+      tag: v1.18.0
+    replicas: 2
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+    podLabels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    labels:
+      exa_product: ecp-inf
+      exa_service: kyverno
+    podAntiAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: reports-controller
+          topologyKey: kubernetes.io/hostname
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app.kubernetes.io/component: reports-controller
+            app.kubernetes.io/instance: kyverno
+
+kyverno-policies:
+  enabled: false
+  # Disabled: The bundled PSS restricted policies (disallow-*, require-*, restrict-*)
+  # are not needed. We manage our own ClusterPolicies in templates/ instead.
+  # policyKind: ClusterPolicy
+  # policyType: ClusterPolicy
+  # podSecurityStandard: restricted
+  # podSecuritySeverity: high
+  # validationFailureAction: Audit
+  # failurePolicy: Ignore
+  # validationAllowExistingViolations: true
+
+systemNamespacesExclusion:
+  # Kubernetes system
+  - kube-system
+  - kube-public
+  - kube-node-lease
+  # GKE managed
+  - gke-managed-filestorecsi
+  - gke-managed-networking-dra-driver
+  - gke-managed-system
+  - gke-managed-volumepopulator
+  # Security / policy
+  - gatekeeper-system
+  - kyverno
+  - upwind
+  # Observability / monitoring
+  - dynatrace
+  - otel
+  - monitoring
+  - logs
+  # Infrastructure / platform
+  - windmill
+  # Messaging
+  - nats
+  - nats-io
+  - nats-sts
+  # Traffic routing
+  - istio-system
+
+namespacePss:
+  enabled: true
+  policyName: add-restricted-pss-labels
+  enforce:
+    enabled: false
+    mode: baseline
+  audit:
+    enabled: true
+    mode: restricted
+  warn:
+    enabled: true
+    mode: restricted
+  excludedNamespaces:
+    - akuity
+    - apigee
+    - apigee-httpbin
+    - argo-rollouts
+    - actions-runner-system
+    - cnrm-system
+    - configconnector-operator-system
+    - crossplane
+    - exa-logstash-operator-system
+    - external-secrets
+    - infrastructure
+    - keda
+    - kubefed
+    - perfectscale
+    - tenant-context-0
+    - tenant-context-1
+    - tenant-context-2
+    - tenant-context-3
+    - tenant-context-4
+    - tenant-context-5
+    - tenant-context-6
+    - tenant-context-7
+    - tenant-context-8
+    - tenant-context-9
+    - tenant-context-a
+    - tenant-context-b
+    - tenant-context-c
+    - tenant-context-d
+    - tenant-context-e
+    - tenant-context-f
+    - tenant-context-g
+    - tenant-context-h
+    - tenant-context-i
+    - tenant-context-j
+    - tenant-context-k
+    - tenant-context-l
+    - tenant-context-m
+    - tenant-context-n
+    - tenant-context-o
+    - tenant-context-p
+    - tenant-context-q
+    - tenant-context-r
+    - tenant-context-s
+    - tenant-context-t
+    - tenant-context-u
+    - tenant-context-v
+    - tenant-context-w
+    - tenant-context-x
+    - tenant-context-y
+    - tenant-context-z
+  additionalExcludedNamespaces: []
+
+### Default Kyverno validating policies for Pod Security Admission (PSA) and other best practices.
+### These are disabled by default, but can be enabled and customized as needed.
+### We manage our own ClusterPolicies in templates/ instead of using the bundled ones, to allow for more customization (e.g. namespace exclusions).
+validatingPolicyDisallowPrivilegedContainers:
+  enabled: true
+  policyName: disallow-privileged-containers
+  validationActions:
+    - Audit
+  evaluation:
+    admission:
+      enabled: false
+    background:
+      enabled: false
+  # Add any namespaces here that should be excluded from this specific policy, in addition to the system namespaces in systemNamespacesExclusion.namespaces.
+  # This is useful for excluding namespaces that need privileged containers, such as those running certain CNI plugins or other infrastructure components.
+  excludedNamespaces:
+  - akuity
+  - apigee
+  - apigee-httpbin
+  - argo-rollouts
+  - binauthz-test
+  - perfectscale
+  - sre-seccomp-test
+  - sre-temp
+  - tenant-context-0
+  - tenant-context-1
+  - tenant-context-2
+  - tenant-context-3
+  - tenant-context-4
+  - tenant-context-5
+  - tenant-context-6
+  - tenant-context-7
+  - tenant-context-8
+  - tenant-context-9
+  - tenant-context-a
+  - tenant-context-b
+  - tenant-context-c
+  - tenant-context-d
+  - tenant-context-e
+  - tenant-context-f
+  - tenant-context-g
+  - tenant-context-h
+  - tenant-context-i
+  - tenant-context-j
+  - tenant-context-k
+  - tenant-context-l
+  - tenant-context-m
+  - tenant-context-n
+  - tenant-context-o
+  - tenant-context-p
+  - tenant-context-q
+  - tenant-context-r
+  - tenant-context-s
+  - tenant-context-t
+  - tenant-context-u
+  - tenant-context-v
+  - tenant-context-w
+  - tenant-context-x
+  - tenant-context-y
+  - tenant-context-z
+  additionalExcludedNamespaces: []
+
+validatingPolicyDisallowPrivilegedEscalation:
+  enabled: false
+  policyName: disallow-privileged-escalation
+  validationActions:
+    - Audit
+  evaluation:
+    admission:
+      enabled: false
+    background:
+      enabled: false
+  # Add any namespaces here that should be excluded from this specific policy, in addition to the system namespaces in systemNamespacesExclusion.namespaces.
+  # This is useful for excluding namespaces that need privileged containers, such as those running certain CNI plugins or other infrastructure components.
+  excludedNamespaces:
+  - akuity
+  - apigee
+  - apigee-httpbin
+  - argo-rollouts
+  - binauthz-test
+  - perfectscale
+  - sre-seccomp-test
+  - sre-temp
+  - tenant-context-0
+  - tenant-context-1
+  - tenant-context-2
+  - tenant-context-3
+  - tenant-context-4
+  - tenant-context-5
+  - tenant-context-6
+  - tenant-context-7
+  - tenant-context-8
+  - tenant-context-9
+  - tenant-context-a
+  - tenant-context-b
+  - tenant-context-c
+  - tenant-context-d
+  - tenant-context-e
+  - tenant-context-f
+  - tenant-context-g
+  - tenant-context-h
+  - tenant-context-i
+  - tenant-context-j
+  - tenant-context-k
+  - tenant-context-l
+  - tenant-context-m
+  - tenant-context-n
+  - tenant-context-o
+  - tenant-context-p
+  - tenant-context-q
+  - tenant-context-r
+  - tenant-context-s
+  - tenant-context-t
+  - tenant-context-u
+  - tenant-context-v
+  - tenant-context-w
+  - tenant-context-x
+  - tenant-context-y
+  - tenant-context-z
+  additionalExcludedNamespaces: []
+
+validatingPolicyDropAllCapabilities:
+  enabled: false
+  policyName: drop-all-capabilities
+  validationActions:
+    - Audit
+  evaluation:
+    admission:
+      enabled: false
+    background:
+      enabled: false
+  # Add any namespaces here that should be excluded from this specific policy, in addition to the system namespaces in systemNamespacesExclusion.namespaces.
+  # This is useful for excluding namespaces that need privileged containers, such as those running certain CNI plugins or other infrastructure components.
+  excludedNamespaces:
+  - akuity
+  - apigee
+  - apigee-httpbin
+  - argo-rollouts
+  - binauthz-test
+  - perfectscale
+  - sre-seccomp-test
+  - sre-temp
+  - tenant-context-0
+  - tenant-context-1
+  - tenant-context-2
+  - tenant-context-3
+  - tenant-context-4
+  - tenant-context-5
+  - tenant-context-6
+  - tenant-context-7
+  - tenant-context-8
+  - tenant-context-9
+  - tenant-context-a
+  - tenant-context-b
+  - tenant-context-c
+  - tenant-context-d
+  - tenant-context-e
+  - tenant-context-f
+  - tenant-context-g
+  - tenant-context-h
+  - tenant-context-i
+  - tenant-context-j
+  - tenant-context-k
+  - tenant-context-l
+  - tenant-context-m
+  - tenant-context-n
+  - tenant-context-o
+  - tenant-context-p
+  - tenant-context-q
+  - tenant-context-r
+  - tenant-context-s
+  - tenant-context-t
+  - tenant-context-u
+  - tenant-context-v
+  - tenant-context-w
+  - tenant-context-x
+  - tenant-context-y
+  - tenant-context-z
+  additionalExcludedNamespaces: []
+
+validatingPolicyRequireRunAsNonRoot:
+  enabled: false
+  policyName: require-run-as-non-root
+  validationActions:
+    - Audit
+  evaluation:
+    admission:
+      enabled: false
+    background:
+      enabled: false
+  # Add any namespaces here that should be excluded from this specific policy, in addition to the system namespaces in systemNamespacesExclusion.namespaces.
+  # This is useful for excluding namespaces that need privileged containers, such as those running certain CNI plugins or other infrastructure components.
+  excludedNamespaces:
+  - akuity
+  - apigee
+  - apigee-httpbin
+  - argo-rollouts
+  - binauthz-test
+  - perfectscale
+  - sre-seccomp-test
+  - sre-temp
+  - tenant-context-0
+  - tenant-context-1
+  - tenant-context-2
+  - tenant-context-3
+  - tenant-context-4
+  - tenant-context-5
+  - tenant-context-6
+  - tenant-context-7
+  - tenant-context-8
+  - tenant-context-9
+  - tenant-context-a
+  - tenant-context-b
+  - tenant-context-c
+  - tenant-context-d
+  - tenant-context-e
+  - tenant-context-f
+  - tenant-context-g
+  - tenant-context-h
+  - tenant-context-i
+  - tenant-context-j
+  - tenant-context-k
+  - tenant-context-l
+  - tenant-context-m
+  - tenant-context-n
+  - tenant-context-o
+  - tenant-context-p
+  - tenant-context-q
+  - tenant-context-r
+  - tenant-context-s
+  - tenant-context-t
+  - tenant-context-u
+  - tenant-context-v
+  - tenant-context-w
+  - tenant-context-x
+  - tenant-context-y
+  - tenant-context-z
+  additionalExcludedNamespaces: []
+
+validatingPolicyRequireRunAsNonRootUser:
+  enabled: false
+  policyName: require-run-as-non-root-user
+  validationActions:
+    - Audit
+  evaluation:
+    admission:
+      enabled: false
+    background:
+      enabled: false
+  # Add any namespaces here that should be excluded from this specific policy, in addition to the system namespaces in systemNamespacesExclusion.namespaces.
+  # This is useful for excluding namespaces that need privileged containers, such as those running certain CNI plugins or other infrastructure components.
+  excludedNamespaces:
+  - akuity
+  - apigee
+  - apigee-httpbin
+  - argo-rollouts
+  - binauthz-test
+  - perfectscale
+  - sre-seccomp-test
+  - sre-temp
+  - tenant-context-0
+  - tenant-context-1
+  - tenant-context-2
+  - tenant-context-3
+  - tenant-context-4
+  - tenant-context-5
+  - tenant-context-6
+  - tenant-context-7
+  - tenant-context-8
+  - tenant-context-9
+  - tenant-context-a
+  - tenant-context-b
+  - tenant-context-c
+  - tenant-context-d
+  - tenant-context-e
+  - tenant-context-f
+  - tenant-context-g
+  - tenant-context-h
+  - tenant-context-i
+  - tenant-context-j
+  - tenant-context-k
+  - tenant-context-l
+  - tenant-context-m
+  - tenant-context-n
+  - tenant-context-o
+  - tenant-context-p
+  - tenant-context-q
+  - tenant-context-r
+  - tenant-context-s
+  - tenant-context-t
+  - tenant-context-u
+  - tenant-context-v
+  - tenant-context-w
+  - tenant-context-x
+  - tenant-context-y
+  - tenant-context-z
+  additionalExcludedNamespaces: []
+
+validatingPolicyRestrictSeccompProfiles:
+  enabled: false
+  policyName: restrict-seccomp-profiles
+  validationActions:
+    - Audit
+  evaluation:
+    admission:
+      enabled: false
+    background:
+      enabled: false
+  # Add any namespaces here that should be excluded from this specific policy, in addition to the system namespaces in systemNamespacesExclusion.namespaces.
+  # This is useful for excluding namespaces that need privileged containers, such as those running certain CNI plugins or other infrastructure components.
+  excludedNamespaces:
+  - akuity
+  - apigee
+  - apigee-httpbin
+  - argo-rollouts
+  - binauthz-test
+  - perfectscale
+  - sre-seccomp-test
+  - sre-temp
+  - tenant-context-0
+  - tenant-context-1
+  - tenant-context-2
+  - tenant-context-3
+  - tenant-context-4
+  - tenant-context-5
+  - tenant-context-6
+  - tenant-context-7
+  - tenant-context-8
+  - tenant-context-9
+  - tenant-context-a
+  - tenant-context-b
+  - tenant-context-c
+  - tenant-context-d
+  - tenant-context-e
+  - tenant-context-f
+  - tenant-context-g
+  - tenant-context-h
+  - tenant-context-i
+  - tenant-context-j
+  - tenant-context-k
+  - tenant-context-l
+  - tenant-context-m
+  - tenant-context-n
+  - tenant-context-o
+  - tenant-context-p
+  - tenant-context-q
+  - tenant-context-r
+  - tenant-context-s
+  - tenant-context-t
+  - tenant-context-u
+  - tenant-context-v
+  - tenant-context-w
+  - tenant-context-x
+  - tenant-context-y
+  - tenant-context-z
+  additionalExcludedNamespaces: []
+
+
+externalSecrets:
+  enabled: false
+  secretStoreRef:
+    kind: ""
+    name: ""
+  secrets: []
+  # - name: "regsecret"
+  #   data:
+  #   - secretKey: "regsecret"
+  #     remoteRef:
+  #       key: exa-artifact-registry-secret

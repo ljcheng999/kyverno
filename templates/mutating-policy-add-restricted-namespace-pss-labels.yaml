@@ -1,0 +1,55 @@
+{{- if .Values.namespacePss.enabled }}
+apiVersion: policies.kyverno.io/v1
+kind: MutatingPolicy
+metadata:
+  annotations:
+    policies.kyverno.io/category: Pod Security
+    policies.kyverno.io/severity: high
+    policies.kyverno.io/subject: Namespace
+    policies.kyverno.io/title: Apply Namespace PSA Labels
+  name: {{ .Values.namespacePss.policyName }}
+spec:
+  evaluation:
+    admission:
+      enabled: true
+    mutateExisting:
+      enabled: true
+  matchConstraints:
+    resourceRules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources: 
+          - namespaces
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+          {{- range $namespaces := (concat .Values.systemNamespacesExclusion .Values.namespacePss.excludedNamespaces .Values.namespacePss.additionalExcludedNamespaces) | uniq }}
+            - {{ . | quote }}
+          {{- end }}
+  mutations:
+  - patchType: ApplyConfiguration
+    applyConfiguration:
+      expression: >
+        Object{
+          metadata: Object.metadata{
+            labels: {
+              {{- if .Values.namespacePss.enforce.enabled }}
+                "pod-security.kubernetes.io/enforce": "{{ .Values.namespacePss.enforce.mode }}",
+              {{- end }}
+              {{- if .Values.namespacePss.audit.enabled }}
+                "pod-security.kubernetes.io/audit": "{{ .Values.namespacePss.audit.mode }}",
+              {{- end }}
+              {{- if .Values.namespacePss.warn.enabled }}
+                "pod-security.kubernetes.io/warn": "{{ .Values.namespacePss.warn.mode }}"
+              {{- end }}
+            }
+          }
+        }   
+{{- end }}
